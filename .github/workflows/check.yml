@@ -1,0 +1,63 @@
+name: MDMS status check
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours (UTC)
+  workflow_dispatch:          # allow manual runs from the Actions tab
+
+permissions:
+  contents: write             # needed to commit the last-seen status back
+
+concurrency:
+  group: mdms-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check status and notify on change
+        env:
+          MDMS_EMAIL: ${{ secrets.MDMS_EMAIL }}
+          MDMS_IMEI:  ${{ secrets.MDMS_IMEI }}
+          NTFY_TOPIC: ${{ secrets.MDMS_NTFY_TOPIC }}
+        run: |
+          set -euo pipefail
+
+          # Query the portal
+          NEW=$(curl -s -X POST https://mdms.nta.gov.np/lost-track-status/checkStatus \
+            --max-time 60 \
+            -d "emailId=${MDMS_EMAIL}" \
+            -d "imeiNumbers=${MDMS_IMEI}")
+
+          # Guard: if the server returned nothing (down / timeout), do NOT
+          # treat it as a change. Just log and exit successfully.
+          if [ -z "${NEW}" ]; then
+            echo "Empty response from server — skipping this run."
+            exit 0
+          fi
+
+          echo "Current status: ${NEW}"
+
+          OLD=$(cat last_status.txt 2>/dev/null || echo "")
+
+          if [ "${NEW}" != "${OLD}" ]; then
+            echo "Status changed — sending notification."
+            curl -s \
+              -H "Title: MDMS status changed" \
+              -H "Priority: high" \
+              -H "Tags: bell" \
+              -d "${NEW}" \
+              "ntfy.sh/${NTFY_TOPIC}"
+
+            printf '%s' "${NEW}" > last_status.txt
+            git config user.name  "mdms-bot"
+            git config user.email "mdms-bot@users.noreply.github.com"
+            git add last_status.txt
+            git commit -m "MDMS status update"
+            git push
+          else
+            echo "No change since last check."
+          fi
