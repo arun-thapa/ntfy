@@ -2,86 +2,116 @@ name: MDMS status check
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours (UTC)
-  workflow_dispatch:          # allow manual runs from the Actions tab
+    - cron: "0 */6 * * *"    # every 6 hours (UTC) — notify only if changed
+    - cron: "15 3 * * *"     # daily 03:15 UTC = 09:00 Nepal — always ping (heartbeat)
+  workflow_dispatch:          # manual run from the Actions tab — always ping
 
 permissions:
-  contents: write             # needed to commit the last-seen status back
+  contents: write       last-seen status back
 
 concurrency:
   group: mdms-check
-  cancel-in-progress: false
+  cancel-in-progress: fa
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-late
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/ch
 
-      - name: Check status and notify on change
+      - name: Check stat
         env:
-          MDMS_EMAIL: ${{ secrets.MDMS_EMAIL }}
+          MDMS_EMAIL: ${
           MDMS_IMEI:  ${{ secrets.MDMS_IMEI }}
-          NTFY_TOPIC: ${{ secrets.MDMS_NTFY_TOPIC }}
+          NTFY_TOPIC: ${
+          # Which schedule fired this run? ('' for manual dispatch)
+          TRIGGER_CRON:
+          EVENT_NAME:   ${{ github.event_name }}
         run: |
           set -euo pipefail
 
-          # Query the portal (returns a full HTML results page)
-          RAW=$(curl -s -X POST https://mdms.nta.gov.np/lost-track-status/checkStatus \
-            --max-time 60 \
-            -d "emailId=${MDMS_EMAIL}" \
-            -d "imeiNumbers=${MDMS_IMEI}")
+          # Always ping on the daily heartbeat cron or a manual run,
+          # even when no
+          FORCE_NOTIFY=false
+          if [ "${TRIGGE[ "${EVENT_NAME}" ="workflow_dispatch" ]; then
+            FORCE_NOTIFY
+          fi
 
-          # Guard: empty response = server down / timeout. Do NOT treat as a change.
-          if [ -z "${RAW}" ]; then
+          # Query the portal (returns a full HTML results page)
+          RAW=$(curl -shttps://mdms.nta.gov.np/lost-track-status/checkStatus \
+            --max-time 6
+            -d "emailId=${MDMS_EMAIL}" \
+            -d "imeiNumb
+
+          # Guard: emptyeout. Do NOT treat as achange.
+          if [ -z "${RAW
             echo "Empty response from server — skipping this run."
             exit 0
           fi
 
           # Flatten the HTML to a single line of plain text:
-          #   - strip tags, decode &nbsp;, drop the trailing <script> block
+          #   - strip tarailing <script> block
           #     (it holds per-request tokens that would cause false alarms),
-          #   - squeeze whitespace.
+          #   - squeeze
           CLEAN=$(printf '%s' "${RAW}" \
-            | tr '\n\r\t' '   ' \
-            | sed -e 's/<[^>]*>/ /g' -e 's/&nbsp;/ /g' -e 's/\$(document.*//' \
+            | tr '\n\r\t
+            | sed -e 's/<[^>]*>/ /g' -e 's/&nbsp;/ /g' -e 's/\$(document.*//'
+\
             | tr -s ' ')
 
-          # Pull out just the three status lines that actually change over time.
+          # Pull out just the three status lines that actually change over
+time.
           NEW=$(printf '%s' "${CLEAN}" | sed -n \
-            's/.*Application Status \(.*\) 2 Tracking Status \(.*\) 3 Device Status \(.*\)$/Application Status: \1\nTracking Status: \2\nDevice Status: \3/p')
+            's/.*Applica Status \(.*\) 3 DeviceStatus \(.*\)$/Application Status: \1\nTracking Status: \2\nDevice Status:
+\3/p')
 
-          # Fallback for other responses (e.g. "Record Not Found!" or a layout
+          # Fallback ford Not Found!" or a layout
           # change): use the trimmed plain text so we still get alerted.
-          if [ -z "${NEW}" ]; then
-            NEW=$(printf '%s' "${CLEAN}" | sed -e 's/^ *//' -e 's/ *$//' | cut -c1-400)
+          if [ -z "${NEW
+            NEW=$(printf '%s' "${CLEAN}" | sed -e 's/^ *//' -e 's/ *$//' | cut
+-c1-400)
           fi
 
           if [ -z "${NEW}" ]; then
-            echo "Could not parse a status — skipping this run."
+            echo "Could  this run."
             exit 0
           fi
 
-          echo "Current status:"
+          echo "Current
           echo "${NEW}"
 
           OLD=$(cat last_status.txt 2>/dev/null || echo "")
+          CHANGED=false
+          [ "${NEW}" != "${OLD}" ] && CHANGED=true
 
-          if [ "${NEW}" != "${OLD}" ]; then
-            echo "Status changed — sending notification."
+          if [ "${CHANGED}" = true ] || [ "${FORCE_NOTIFY}" = true ]; then
+            if [ "${CHAN
+              TITLE="MDMS application status changed"
+              PRIORITY="
+              TAGS="bell"
+            else
+              TITLE="MDMS heartbeat — no change"
+              PRIORITY="
+              TAGS="white_check_mark"
+            fi
+            echo "Sending notification (changed=${CHANGED},
+forced=${FORCE_NOTIFY}).
             printf '%s' "${NEW}" | curl -s \
-              -H "Title: MDMS application status changed" \
-              -H "Priority: high" \
-              -H "Tags: bell" \
+              -H "Title:
+              -H "Priority: ${PRIORITY}" \
+              -H "Tags:
               --data-binary @- \
-              "ntfy.sh/${NTFY_TOPIC}"
+              "ntfy.sh/$
+          else
+            echo "No chag quiet."
+          fi
 
+          # Only persist state when the status genuinely changed.
+          if [ "${CHANGE
             printf '%s' "${NEW}" > last_status.txt
-            git config user.name  "mdms-bot"
+            git config u
             git config user.email "mdms-bot@users.noreply.github.com"
-            git add last_status.txt
+            git add last
             git commit -m "MDMS status update"
             git push
-          else
-            echo "No change since last check."
           fi
