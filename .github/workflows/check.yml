@@ -26,30 +26,54 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Query the portal
-          NEW=$(curl -s -X POST https://mdms.nta.gov.np/lost-track-status/checkStatus \
+          # Query the portal (returns a full HTML results page)
+          RAW=$(curl -s -X POST https://mdms.nta.gov.np/lost-track-status/checkStatus \
             --max-time 60 \
             -d "emailId=${MDMS_EMAIL}" \
             -d "imeiNumbers=${MDMS_IMEI}")
 
-          # Guard: if the server returned nothing (down / timeout), do NOT
-          # treat it as a change. Just log and exit successfully.
-          if [ -z "${NEW}" ]; then
+          # Guard: empty response = server down / timeout. Do NOT treat as a change.
+          if [ -z "${RAW}" ]; then
             echo "Empty response from server — skipping this run."
             exit 0
           fi
 
-          echo "Current status: ${NEW}"
+          # Flatten the HTML to a single line of plain text:
+          #   - strip tags, decode &nbsp;, drop the trailing <script> block
+          #     (it holds per-request tokens that would cause false alarms),
+          #   - squeeze whitespace.
+          CLEAN=$(printf '%s' "${RAW}" \
+            | tr '\n\r\t' '   ' \
+            | sed -e 's/<[^>]*>/ /g' -e 's/&nbsp;/ /g' -e 's/\$(document.*//' \
+            | tr -s ' ')
+
+          # Pull out just the three status lines that actually change over time.
+          NEW=$(printf '%s' "${CLEAN}" | sed -n \
+            's/.*Application Status \(.*\) 2 Tracking Status \(.*\) 3 Device Status \(.*\)$/Application Status: \1\nTracking Status: \2\nDevice Status: \3/p')
+
+          # Fallback for other responses (e.g. "Record Not Found!" or a layout
+          # change): use the trimmed plain text so we still get alerted.
+          if [ -z "${NEW}" ]; then
+            NEW=$(printf '%s' "${CLEAN}" | sed -e 's/^ *//' -e 's/ *$//' | cut -c1-400)
+          fi
+
+          if [ -z "${NEW}" ]; then
+            echo "Could not parse a status — skipping this run."
+            exit 0
+          fi
+
+          echo "Current status:"
+          echo "${NEW}"
 
           OLD=$(cat last_status.txt 2>/dev/null || echo "")
 
           if [ "${NEW}" != "${OLD}" ]; then
             echo "Status changed — sending notification."
-            curl -s \
-              -H "Title: MDMS status changed" \
+            printf '%s' "${NEW}" | curl -s \
+              -H "Title: MDMS application status changed" \
               -H "Priority: high" \
               -H "Tags: bell" \
-              -d "${NEW}" \
+              --data-binary @- \
               "ntfy.sh/${NTFY_TOPIC}"
 
             printf '%s' "${NEW}" > last_status.txt
