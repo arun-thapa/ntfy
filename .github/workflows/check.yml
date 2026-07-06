@@ -7,23 +7,23 @@ on:
   workflow_dispatch:          # manual run from the Actions tab — always ping
 
 permissions:
-  contents: write       last-seen status back
+  contents: write             # needed to commit the last-seen status back
 
 concurrency:
   group: mdms-check
-  cancel-in-progress: fa
+  cancel-in-progress: false
 
 jobs:
   check:
-    runs-on: ubuntu-late
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/ch
+      - uses: actions/checkout@v4
 
-      - name: Check stat
+      - name: Check status and notify
         env:
-          MDMS_EMAIL: ${
+          MDMS_EMAIL: ${{ secrets.MDMS_EMAIL }}
           MDMS_IMEI:  ${{ secrets.MDMS_IMEI }}
-          NTFY_TOPIC: ${
+          NTFY_TOPIC: ${{ secrets.MDMS_NTFY_TOPIC }}
           # Which schedule fired this run? ('' for manual dispatch)
           TRIGGER_CRON:
           EVENT_NAME:   ${{ github.event_name }}
