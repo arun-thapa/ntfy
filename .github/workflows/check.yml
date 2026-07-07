@@ -3,7 +3,12 @@ name: MDMS status check
 on:
   schedule:
     - cron: "0 */3 * * *"    # every 3 hours (UTC) — notify only if changed
-    - cron: "15 3 * * *"     # daily 03:15 UTC = 09:00 Nepal — always ping (heartbeat)
+    # Daily heartbeat, retried across a window: GitHub frequently delays or
+    # drops scheduled runs, so we give it three chances to land. The dedup
+    # guard below makes sure only the first one that lands actually pings.
+    - cron: "15 3 * * *"     # 03:15 UTC = 09:00 Nepal (heartbeat)
+    - cron: "45 3 * * *"     # 03:45 UTC = 09:30 Nepal (retry)
+    - cron: "15 4 * * *"     # 04:15 UTC = 10:00 Nepal (retry)
   workflow_dispatch:          # manual run from the Actions tab — always ping
 
 permissions:
@@ -30,11 +35,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Always ping on the daily heartbeat cron or a manual run,
-          # even when nothing changed.
+          # Is this run one of the daily heartbeat retry slots?
+          HEARTBEAT_CRON=false
+          case "${TRIGGER_CRON}" in
+            "15 3 * * *"|"45 3 * * *"|"15 4 * * *") HEARTBEAT_CRON=true ;;
+          esac
+
+          # Always ping on a manual run. For the heartbeat, ping only if we
+          # haven't already sent one today — so the retry slots don't spam you
+          # when more than one lands. The marker lives in last_heartbeat.txt.
+          TODAY=$(date -u +%F)
+          LAST_HB=$(cat last_heartbeat.txt 2>/dev/null || echo "")
           FORCE_NOTIFY=false
-          if [ "${TRIGGER_CRON}" = "15 3 * * *" ] || [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+          HEARTBEAT_FIRED=false
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             FORCE_NOTIFY=true
+          elif [ "${HEARTBEAT_CRON}" = true ] && [ "${TODAY}" != "${LAST_HB}" ]; then
+            FORCE_NOTIFY=true
+            HEARTBEAT_FIRED=true
           fi
 
           # Query the portal (returns a full HTML results page)
@@ -123,12 +141,22 @@ jobs:
             echo "No change and no heartbeat — staying quiet."
           fi
 
-          # Only persist state when the status genuinely changed.
+          # Persist state: the seen status (on change) and/or today's heartbeat
+          # marker (so the retry slots dedup). Commit only if something changed.
+          NEED_COMMIT=false
           if [ "${CHANGED}" = true ]; then
             printf '%s' "${NEW}" > last_status.txt
+            git add last_status.txt
+            NEED_COMMIT=true
+          fi
+          if [ "${HEARTBEAT_FIRED}" = true ]; then
+            printf '%s' "${TODAY}" > last_heartbeat.txt
+            git add last_heartbeat.txt
+            NEED_COMMIT=true
+          fi
+          if [ "${NEED_COMMIT}" = true ]; then
             git config user.name  "mdms-bot"
             git config user.email "mdms-bot@users.noreply.github.com"
-            git add last_status.txt
-            git commit -m "MDMS status update"
+            git commit -m "MDMS state update"
             git push
           fi
