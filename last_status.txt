@@ -1,3 +1,3 @@
-Application Status: Application Pending Verification
-Tracking Status: Tracking Disabled
-Device Status: Device Not Found
+Application Status: Application Verified
+Tracking Status: Tracking Enabled Device use has not been detected yet
+Device Status: Device Not Found 
