@@ -87,8 +87,22 @@ jobs:
           CHANGED=false
           [ "${NEW}" != "${OLD}" ] && CHANGED=true
 
+          # Has the phone been DETECTED? True when the Device Status line
+          # exists and no longer says "Not Found".
+          DEVICE_FOUND=false
+          DLINE=$(printf '%s\n' "${NEW}" | grep -i '^Device Status:' || true)
+          if [ -n "${DLINE}" ] && ! printf '%s' "${DLINE}" | grep -qi 'not found'; then
+            DEVICE_FOUND=true
+          fi
+
           if [ "${CHANGED}" = true ] || [ "${FORCE_NOTIFY}" = true ]; then
-            if [ "${CHANGED}" = true ]; then
+            if [ "${CHANGED}" = true ] && [ "${DEVICE_FOUND}" = true ]; then
+              # The big one: phone detected. Max priority = loud ringing alert
+              # that overrides silent mode (given the phone-side setup).
+              TITLE="🚨 DEVICE DETECTED — open MDMS now"
+              PRIORITY="urgent"      # ntfy priority 5 (max)
+              TAGS="rotating_light"
+            elif [ "${CHANGED}" = true ]; then
               TITLE="MDMS application status changed"
               PRIORITY="high"
               TAGS="bell"
@@ -97,11 +111,12 @@ jobs:
               PRIORITY="default"
               TAGS="white_check_mark"
             fi
-            echo "Sending notification (changed=${CHANGED}, forced=${FORCE_NOTIFY})."
+            echo "Sending notification (changed=${CHANGED}, forced=${FORCE_NOTIFY}, device_found=${DEVICE_FOUND})."
             printf '%s' "${NEW}" | curl -s \
               -H "Title: ${TITLE}" \
               -H "Priority: ${PRIORITY}" \
               -H "Tags: ${TAGS}" \
+              -H "Click: https://mdms.nta.gov.np/lost-track-status" \
               --data-binary @- \
               "ntfy.sh/${NTFY_TOPIC}"
           else
