@@ -41,18 +41,28 @@ jobs:
             "15 3 * * *"|"45 3 * * *"|"15 4 * * *") HEARTBEAT_CRON=true ;;
           esac
 
-          # Always ping on a manual run. For the heartbeat, ping only if we
-          # haven't already sent one today — so the retry slots don't spam you
-          # when more than one lands. The marker lives in last_heartbeat.txt.
+          # Decide whether to ping even when nothing changed.
+          #   - manual run              → always ping
+          #   - heartbeat retry slots   → ping once/day (dedup via marker)
+          #   - 3-hourly cron           → TEMPORARY: ping every run
           TODAY=$(date -u +%F)
           LAST_HB=$(cat last_heartbeat.txt 2>/dev/null || echo "")
           FORCE_NOTIFY=false
           HEARTBEAT_FIRED=false
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             FORCE_NOTIFY=true
-          elif [ "${HEARTBEAT_CRON}" = true ] && [ "${TODAY}" != "${LAST_HB}" ]; then
+          elif [ "${HEARTBEAT_CRON}" = true ]; then
+            # Heartbeat slots: ping only if we haven't already sent one today,
+            # so the 09:30/10:00 retry slots don't double-ping. Marker lives
+            # in last_heartbeat.txt.
+            if [ "${TODAY}" != "${LAST_HB}" ]; then
+              FORCE_NOTIFY=true
+              HEARTBEAT_FIRED=true
+            fi
+          else
+            # TEMPORARY: ping on every 3-hourly run even with no change.
+            # Delete this branch to return to change-only notifications.
             FORCE_NOTIFY=true
-            HEARTBEAT_FIRED=true
           fi
 
           # Query the portal (returns a full HTML results page)
