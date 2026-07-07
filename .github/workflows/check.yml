@@ -50,12 +50,19 @@ jobs:
           fi
 
           # Flatten the HTML to a single line of plain text:
-          #   - strip tags, decode &nbsp;, drop the trailing <script> block
-          #     (it holds per-request tokens that would cause false alarms),
+          #   - remove <button>/<a> action controls first, INCLUDING their text
+          #     (e.g. "I have found my mobile. Disable Tracking.") so button
+          #     labels don't get mistaken for status,
+          #   - strip remaining tags, decode &nbsp;, drop the trailing <script>
+          #     block (it holds per-request tokens that cause false alarms),
           #   - squeeze whitespace.
           CLEAN=$(printf '%s' "${RAW}" \
             | tr '\n\r\t' '   ' \
-            | sed -e 's/<[^>]*>/ /g' -e 's/&nbsp;/ /g' -e 's/\$(document.*//' \
+            | sed -e 's/<button[^>]*>[^<]*<\/button>/ /g' \
+                  -e 's/<a [^>]*>[^<]*<\/a>/ /g' \
+                  -e 's/<[^>]*>/ /g' \
+                  -e 's/&nbsp;/ /g' \
+                  -e 's/\$(document.*//' \
             | tr -s ' ')
 
           # Pull out just the three status lines that actually change over time.
