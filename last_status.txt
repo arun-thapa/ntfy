@@ -1,3 +1,3 @@
 Application Status: Application Verified
-Tracking Status: Tracking Enabled Device use has not been detected yet
+Tracking Status: Tracking Enabled Device use detected after lost date !
 Device Status: Device Not Found 
